@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Velodyne LiDAR Sequence Player</title>
+<script src="plotly.min.js"></script><script src="manifest.js"></script><script src="session_navigation.js"></script><script src="clearance.js"></script>
+<style>
+@font-face{font-family:"Noto Sans";src:url("fonts/NotoSans.ttf") format("truetype");font-weight:100 900;font-style:normal;font-display:swap}
+*{box-sizing:border-box}body{margin:0;background:#0a101a;color:#e7edf6;font:14px "Noto Sans",sans-serif}button,select,input{font:inherit}button,select{background:#1e2a3c;color:#e7edf6;border:1px solid #344158;border-radius:7px;padding:8px 12px;cursor:pointer}button:hover{background:#304463}button.primary{background:#167b65;border-color:#249c82;min-width:92px}header{padding:16px 22px 12px;border-bottom:1px solid #263247;display:flex;gap:20px;align-items:center;justify-content:space-between}h1{font-size:20px;margin:0 0 5px}.sub{color:#91a3bd;font-size:12px}.badge{padding:6px 10px;background:#16352f;color:#78e7c4;border-radius:20px;font-size:12px}.toolbar{padding:12px 22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;border-bottom:1px solid #263247}.toolbar label{display:flex;gap:7px;align-items:center}.toolbar input[type=range]{width:125px;accent-color:#34d399}.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;height:calc(100vh - 252px);min-height:390px}#plot{min-width:0;height:100%}aside{overflow:auto;padding:18px;background:#0e1725;border-left:1px solid #263247}h2{font-size:15px;margin:0 0 12px}.stat{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}.stat div{padding:12px;background:#182438;border-radius:8px}.stat small{display:block;color:#95a5be;margin-bottom:4px}.stat strong{font-size:18px}.item{padding:12px 0;border-bottom:1px solid #263247}.item strong{display:block;margin-bottom:5px}.item span{color:#a5b5ca;font-size:12px}.weak{color:#fbbf24!important}#error{color:#ffb3b3;padding:10px;display:none}.controls{padding:14px 22px;border-top:1px solid #263247;background:#101a2a}.timeline{display:flex;align-items:center;gap:14px;margin-bottom:12px}#seek{flex:1;accent-color:#34d399}#frameNumber{width:95px;padding:7px;background:#1e2a3c;border:1px solid #344158;color:#fff;border-radius:6px}.transport{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.info{margin-left:auto;color:#a5b5ca;font-size:12px}.hint{color:#8396b0;font-size:12px;margin-top:8px}#folder{display:none}#loading{position:fixed;bottom:155px;left:30px;background:#1b2c42;padding:8px 14px;border-radius:8px;display:none;pointer-events:none}a{color:#82d7ff}@media(max-width:850px){.layout{grid-template-columns:1fr;height:500px}aside{display:none}header{align-items:flex-start}.info{margin-left:0}.toolbar{gap:8px}.controls{position:sticky;bottom:0}h1{font-size:17px}}
+body{height:100vh;display:flex;flex-direction:column;overflow:hidden}header,.toolbar,.controls{flex-shrink:0}.layout{height:auto;min-height:0;flex:1}.controls{position:relative}aside{min-height:0}@media(max-width:850px){.layout{height:auto;min-height:0;flex:1}.controls{position:relative}}
+.toolbar{gap:9px}.toolbar label{font-size:13px}.toolbar button,.toolbar select{padding:7px 8px;font-size:13px}.toolbar input[type=range]{width:95px}.layout{display:block}.frame-summary{flex-shrink:0;display:flex;align-items:center;gap:20px;white-space:nowrap;overflow-x:auto;padding:10px 22px;background:#141f30;border-top:1px solid #263247;font-size:12px}.frame-summary b{font-weight:600;color:#e7edf6}.width-status{flex-shrink:0;display:flex;align-items:center;gap:14px;padding:8px 22px;font-size:12px;white-space:nowrap;overflow-x:auto;color:#95a5be}.width-status strong{color:#e7edf6}#widthReason{font-size:11px;color:#8396b0}</style></head><body>
+<header><div><h1>Velodyne LiDAR Frame Player</h1><div class="sub">Real point clouds + pretrained PointPillars predictions · X forward / Y left / Z up</div></div><span class="badge" id="datasetStatus">Loading dataset</span></header>
+<div class="toolbar">
+<label>Session <select id="session" aria-label="Session"></select></label>
+<label><input id="widthOverlay" type="checkbox" checked>Width line</label>
+<label>View <select id="view"><option value="near">Near 3D</option><option value="bev">Near BEV</option><option value="model">Model range 3D</option><option value="all">Full 3D</option><option value="allbev">Full BEV</option></select></label>
+<label>Confidence <input id="threshold" type="range" min="0.1" max="0.9" step="0.01" value="0.30"><output id="thresholdLabel">0.30</output></label>
+<label><input id="car" type="checkbox" checked>Car</label><label><input id="ped" type="checkbox" checked>Pedestrian</label><label><input id="cyclist" type="checkbox" checked>Cyclist</label>
+<label><input id="labels" type="checkbox" checked>Box labels</label>
+<button id="folderButton" aria-label="Select offline data folder" title="Select offline data folder">Data folder</button><input id="folder" type="file" webkitdirectory multiple>
+</div>
+<div class="width-status"><strong>Forward width:</strong><strong id="widthValue">—</strong><span id="widthSupport"></span><span id="widthReason"></span></div>
+<div class="layout"><div id="plot"></div></div>
+<div class="frame-summary" aria-label="Current frame statistics"><strong>Current Frame</strong><span>Points: <b id="pointCount">—</b></span><span>Visible objects: <b id="objectCount">—</b></span><span>Model input points: <b id="inRangeCount">—</b></span><span>CPU inference: <b id="inferenceTime">—</b></span><span id="captureTime">Capture time: —</span><span id="gapInfo">Frame interval: —</span></div>
+<div id="error" role="alert"></div><div id="loading">Loading frame…</div>
+<div class="controls"><div class="timeline"><span id="counter">0 / 0</span><input id="seek" aria-label="Frame slider" type="range" min="0" max="0" step="1" value="0"><input id="frameNumber" aria-label="Frame number" type="number" min="1" value="1"><button id="jump">Go</button></div>
+<div class="transport"><button id="first" title="First frame">First</button><button id="prev" title="Previous frame">◀ Previous</button><button class="primary" id="play">▶ Play</button><button id="next" title="Next frame">Next ▶</button><button id="last" title="Last frame">Last</button>
+<label class="speed-control">Speed <input id="speed" aria-label="Playback speed" type="range" min="0.1" max="2.0" step="0.1" value="1.0"><output id="speedLabel">1.0×</output></label><label><input id="loop" type="checkbox">Loop</label><button id="reset">Reset view</button><span class="info" id="progressText">Loading frame list</span></div>
+<div class="hint">← / → Previous / next · Space Play / pause · 1.0× = 2 frames/s. Every stored frame is shown in order. Rendering may limit playback speed.</div></div>
+<script>
+'use strict';
+const PLOT_FONT_SIZE=12,PLOT_FONT={family:'Noto Sans, sans-serif',size:PLOT_FONT_SIZE},BASE_FPS=2;
+const $=id=>document.getElementById(id),colors={Car:'#34d399',Pedestrian:'#fb7185',Cyclist:'#60a5fa'},classNames=['Pedestrian','Cyclist','Car'];
+let manifest=window.LIDAR_SEQUENCE||null,index=-1,current=null,playing=false,timer=null,request=0,busy=false,initialized=false,folderFiles=null,renderKey='',renderQueue=Promise.resolve(),sessionNav=null,activeSession='all';
+const cache=new Map(),edgePairs=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
+function error(message){$('error').style.display=message?'block':'none';$('error').textContent=message||'';}
+function pause(){playing=false;clearTimeout(timer);$('play').textContent='▶ Play';}
+function selection(){return sessionNav.get(activeSession);}
+function position(){const p=sessionNav.toLocal(activeSession,index);return Math.max(0,p);}
+function navigateLocal(p){pause();showFrame(sessionNav.toGlobal(activeSession,p));}
+function widthTraces(){
+ const record=window.LIDAR_CLEARANCE?.frames?.[index];
+ $('widthValue').textContent='No valid width found';$('widthValue').style.color='#a5b5ca';
+ $('widthSupport').textContent='Searched 3–20 m, then 20–80 m';$('widthReason').textContent='Insufficient observed boundaries; unobserved space remains unknown.';
+ if(!record||record.width_m==null||!record.endpoints)return [];
+ const support=record.support,partial=record.status==='partial',far=record.search_region==='far',range=record.search_range_m||[3,20];
+ const width=record.width_m,endpoints=record.endpoints,x=record.x_m,color=partial?'#fbbf24':'#67e8f9';
+ $('widthValue').textContent=width.toFixed(2)+' m'+(far?' · far range':'')+(partial?' · partial':'');$('widthValue').style.color=color;
+ $('widthSupport').textContent=range[0]+'–'+range[1]+' m · X = '+x.toFixed(1)+' m · '+support.supported_sections+'/'+support.total_sections+' sections';
+ $('widthReason').textContent=far?'No near-range width. Showing the observed far-range minimum; continuous passage is unconfirmed.':'Observed geometric minimum; unobserved sections remain unknown.';
+ if(!$('widthOverlay').checked)return [];
+ const [a,b]=endpoints,label='Minimum observed width '+width.toFixed(2)+' m'+(far?' (far range)':'');
+ return [{type:'scatter3d',mode:'lines+markers',name:'Observed minimum width',x:[a[0],b[0]],y:[a[1],b[1]],z:[a[2],b[2]],line:{color,width:8},marker:{color,size:4},hovertemplate:label+'<extra></extra>',showlegend:false},{type:'scatter3d',mode:'text',x:[a[0]],y:[(a[1]+b[1])/2],z:[(a[2]+b[2])/2+.25],text:[label],textfont:{...PLOT_FONT,color},showlegend:false}];
+}
+function boxCorners(b){const [x,y,z,dx,dy,dz,a]=b,c=Math.cos(a),s=Math.sin(a);return [[-.5,-.5,0],[.5,-.5,0],[.5,.5,0],[-.5,.5,0],[-.5,-.5,1],[.5,-.5,1],[.5,.5,1],[-.5,.5,1]].map(([u,v,w])=>[x+u*dx*c+v*dy*s,y-u*dx*s+v*dy*c,z+w*dz]);}
+async function frameData(i){
+ if(cache.has(i)){const item=cache.get(i);cache.delete(i);cache.set(i,item);return item;}
+ const f=manifest.frames[i];if(!f.ready)throw new Error('Preprocessing / inference for this frame is incomplete.');
+ let blob;
+ if(folderFiles){const file=folderFiles.get(f.file)||folderFiles.get(f.file.split('/').pop());if(!file)throw new Error('Selected folder is missing '+f.file+' file.');blob=file;}
+ else{if(location.protocol==='file:')throw new Error('Select offline data folder button: choose the data folder.');const response=await fetch(f.file);if(!response.ok)throw new Error('Frame file HTTP '+response.status);blob=await response.blob();}
+ if(typeof DecompressionStream==='undefined')throw new Error('Open in a recent Chrome or Edge version. gzip decompression is required.');
+ const buffer=await new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
+ const jsonLength=new DataView(buffer).getUint32(0,true),meta=JSON.parse(new TextDecoder().decode(new Uint8Array(buffer,4,jsonLength))),offset=Math.ceil((4+jsonLength)/4)*4;
+ if((buffer.byteLength-offset)!==meta.point_count*16)throw new Error('Points data size validation failed');
+ const raw=new Float32Array(buffer,offset),n=meta.point_count,x=new Float32Array(n),y=new Float32Array(n),z=new Float32Array(n),intensity=new Float32Array(n);
+ for(let j=0;j<n;j++){x[j]=raw[4*j];y[j]=raw[4*j+1];z[j]=raw[4*j+2];intensity[j]=raw[4*j+3];}
+ const value={meta,x,y,z,intensity};cache.set(i,value);while(cache.size>4)cache.delete(cache.keys().next().value);return value;
+}
+function scenePreset(meta){const v=$('view').value,top=v==='bev'||v==='allbev',full=v==='all'||v==='allbev',model=v==='model';let ranges;
+ if(full)ranges=meta.bounds_min.map((a,i)=>[a-1,meta.bounds_max[i]+1]);else if(model)ranges=[[0,69.12],[-39.68,39.68],[-3,3]];else ranges=[[0,window.LIDAR_CLEARANCE?.frames?.[index]?.search_region==='far'?80:30],[-10,10],[-2,4]];
+ return {xaxis:{title:{text:'X forward (m)',font:PLOT_FONT},tickfont:PLOT_FONT,range:ranges[0]},yaxis:{title:{text:'Y left (m)',font:PLOT_FONT},tickfont:PLOT_FONT,range:ranges[1]},zaxis:{title:{text:'Z up (m)',font:PLOT_FONT},tickfont:PLOT_FONT,range:ranges[2]},aspectmode:full?'data':'manual',aspectratio:model?{x:3,y:3,z:.4}:{x:3,y:2,z:.6},camera:{eye:top?{x:-.001,y:0,z:2.5}:{x:-4.2,y:0,z:3.0},up:top?{x:1,y:0,z:0}:{x:0,y:0,z:1},projection:{type:'perspective'}}};
+}
+function render(data,forceView=false){
+ const meta=data.meta,threshold=+$('threshold').value,enabled={Car:$('car').checked,Pedestrian:$('ped').checked,Cyclist:$('cyclist').checked};
+ const detections=meta.detections.filter(d=>d.score>=threshold&&enabled[d.class_name]);
+ const traces=[{type:'scatter3d',mode:'markers',name:'LiDAR',x:data.x,y:data.y,z:data.z,customdata:data.intensity,marker:{size:1.4,color:data.z,colorscale:'Viridis',cmin:-1.5,cmax:2,opacity:.75},hovertemplate:'X %{x:.2f}m<br>Y %{y:.2f}m<br>Z %{z:.2f}m<br>Intensity %{customdata:.3f}<extra></extra>',showlegend:false}];
+ for(const name of classNames){let x=[],y=[],z=[],tx=[],ty=[],tz=[],text=[];
+  for(const [j,d] of detections.entries()){if(d.class_name!==name)continue;const corners=boxCorners(d.box);for(const [a,b]of edgePairs){x.push(corners[a][0],corners[b][0],null);y.push(corners[a][1],corners[b][1],null);z.push(corners[a][2],corners[b][2],null);}tx.push(d.box[0]);ty.push(d.box[1]);tz.push(d.box[2]+d.box[5]+.25);text.push('#'+(j+1)+' '+name+' | '+d.score.toFixed(3)+' | '+d.distance_m.toFixed(1)+'m'+(d.score<.3?' · review candidate':''));}
+  traces.push({type:'scatter3d',mode:'lines',name,x,y,z,line:{color:colors[name],width:5},showlegend:false,hoverinfo:'skip'});
+  traces.push({type:'scatter3d',mode:'text',x:tx,y:ty,z:tz,text:$('labels').checked?text:text.map(()=>''),textfont:{...PLOT_FONT,color:colors[name]},hovertext:text,hoverinfo:'text',showlegend:false});
+ }
+ traces.push(...widthTraces());
+ const nextKey=$('view').value+(forceView?'-'+Date.now():'');if(forceView||!renderKey)renderKey=nextKey;
+ const scene=scenePreset(meta);scene.annotations=traces.filter(t=>t.mode==='text').flatMap(t=>t.text.map((text,i)=>({x:t.x[i],y:t.y[i],z:t.z[i],text,font:{...PLOT_FONT,color:t.textfont.color},showarrow:false,yanchor:'bottom'}))).filter(a=>a.text);
+ const plotTraces=traces.filter(t=>t.mode!=='text');
+ const layout={font:PLOT_FONT,hoverlabel:{font:PLOT_FONT},template:'plotly_dark',paper_bgcolor:'#0a101a',plot_bgcolor:'#0a101a',margin:{l:0,r:0,t:0,b:0},scene,uirevision:renderKey,showlegend:false};
+ renderQueue=renderQueue.catch(()=>{}).then(async()=>{
+   if(initialized)await Plotly.react('plot',plotTraces,layout,{responsive:true,displaylogo:false});else{await Plotly.newPlot('plot',plotTraces,layout,{responsive:true,displaylogo:false});initialized=true;}
+ });
+ $('pointCount').textContent=meta.point_count.toLocaleString();$('objectCount').textContent=detections.length;$('inRangeCount').textContent=meta.points_in_model_range.toLocaleString();$('inferenceTime').textContent=meta.inference_seconds.toFixed(2)+'s';
+ $('captureTime').textContent='Capture time: '+(meta.timestamp_ms?new Date(meta.timestamp_ms).toLocaleString('en-GB',{timeZone:'Asia/Seoul',hour12:false}):'unavailable');
+ const local=position(),previous=local>0?manifest.frames[selection().indices[local-1]]:null;const gap=previous?.timestamp_ms&&meta.timestamp_ms?(meta.timestamp_ms-previous.timestamp_ms)/1000:null;
+ $('gapInfo').textContent=gap!==null?'Frame interval: '+gap.toFixed(3)+' s'+(gap>2?' · large gap':''):'Frame interval: —';
+ return renderQueue;
+}
+async function showFrame(i){
+ i=Math.max(0,Math.min(manifest.frames.length-1,i));if(sessionNav.toLocal(activeSession,i)<0)i=sessionNav.first(activeSession);const token=++request;busy=true;for(const id of ['first','last','prev','next','jump','frameNumber','seek'])$(id).disabled=true;$('loading').style.display='block';error('');
+ try{const data=await frameData(i);if(token!==request)return;index=i;current=data;await render(data);if(token!==request)return;const local=position();$('counter').textContent=(local+1)+' / '+selection().frameCount;$('seek').value=local;$('frameNumber').value=local+1;$('progressText').textContent='Global '+(i+1)+' / '+manifest.frames.length+' · sweep '+data.meta.sweep_id+' · '+data.meta.source_name;}
+ catch(e){if(token===request){pause();error(e.message);}}
+ finally{if(token===request){busy=false;for(const id of ['first','last','prev','next','jump','frameNumber','seek'])$(id).disabled=false;$('loading').style.display='none';}}
+}
+async function tick(){if(!playing)return;const started=performance.now();let next=position()+1;if(next>=selection().frameCount){if($('loop').checked)next=0;else{pause();return;}}await showFrame(sessionNav.toGlobal(activeSession,next));if(playing)timer=setTimeout(tick,Math.max(0,1000/(BASE_FPS*Number($('speed').value))-(performance.now()-started)));}
+function togglePlay(){if(playing)pause();else{if(index<0)return;playing=true;$('play').textContent='⏸ Pause';timer=setTimeout(tick,1000/(BASE_FPS*Number($('speed').value)));}}
+function navigate(i){pause();showFrame(i);}
+function configure(){
+ if(!sessionNav){sessionNav=LidarSessionNavigation.create(manifest.frames);for(const group of [sessionNav.all,...sessionNav.sessions]){const option=document.createElement('option');option.value=group.id;option.textContent=group.label;$('session').append(option);}}
+ const total=selection().frameCount;$('seek').max=Math.max(0,total-1);$('frameNumber').max=total;
+ $('datasetStatus').textContent=manifest.status==='complete'?manifest.total_frames.toLocaleString()+' frames · '+sessionNav.sessions.length+' sessions':manifest.completed_frames+' / '+manifest.total_frames+' processing';
+}
+async function boot(){try{if(location.protocol!=='file:'){const response=await fetch('manifest.json',{cache:'no-store'});if(response.ok)manifest=await response.json();}if(!manifest?.frames?.length)throw new Error('Missing manifest.json / manifest.js.');configure();if(location.protocol==='file:'){error('Select offline data folder button: choose this player’s data folder.');$('counter').textContent='1 / '+manifest.frames.length;return;}const first=manifest.frames.findIndex(f=>f.ready);if(first>=0)await showFrame(first);else error('No processed frames yet. Refresh later.');}catch(e){error(e.message);}}
+$('first').onclick=()=>navigateLocal(0);$('last').onclick=()=>navigateLocal(selection().frameCount-1);$('prev').onclick=()=>navigateLocal(position()-1);$('next').onclick=()=>navigateLocal(position()+1);$('play').onclick=togglePlay;$('seek').oninput=()=>navigateLocal(+$('seek').value);$('jump').onclick=()=>navigateLocal(+$('frameNumber').value-1);$('frameNumber').onkeydown=e=>{if(e.key==='Enter')$('jump').click();};
+$('threshold').oninput=()=>{$('thresholdLabel').textContent=(+$('threshold').value).toFixed(2);if(current)render(current);};for(const id of ['car','ped','cyclist','labels'])$(id).onchange=()=>{if(current)render(current);};$('view').onchange=()=>{if(current)render(current,true);};$('reset').onclick=()=>{if(current)render(current,true);};
+$('session').onchange=()=>{pause();activeSession=$('session').value;configure();renderKey='';navigateLocal(0);};$('widthOverlay').onchange=()=>{if(current)render(current);};
+$('speed').oninput=()=>{$('speedLabel').textContent=Number($('speed').value).toFixed(1)+'×';if(playing&&!busy){clearTimeout(timer);timer=setTimeout(tick,1000/(BASE_FPS*Number($('speed').value)));}};
+$('folderButton').onclick=()=>{$('folder').click();};$('folder').onchange=async()=>{pause();folderFiles=new Map();for(const file of $('folder').files){folderFiles.set(file.name,file);const path=file.webkitRelativePath;const marker=path.indexOf('data/');if(marker>=0)folderFiles.set(path.slice(marker),file);}cache.clear();error('');await showFrame(Math.max(index,0));};
+document.addEventListener('keydown',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName))return;if(e.code==='Space'){e.preventDefault();togglePlay();}if(e.code==='ArrowRight'){e.preventDefault();navigateLocal(position()+1);}if(e.code==='ArrowLeft'){e.preventDefault();navigateLocal(position()-1);}});
+document.fonts.ready.then(boot);
+</script></body></html>
